@@ -2,6 +2,7 @@ export const translations = {
   en: {
     appName: "ScanWise",
     tagline: "Scan karo. Samjho. Sahi khao.",
+    // v2.1 — auto-push daemon end-to-end test marker
     scannerPlaceholder: "Scanner coming here",
     scannerSubtitle: "Phase 2 me barcode scanner aayega",
     manualSearch: "Search manually",
