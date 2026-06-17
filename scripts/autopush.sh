@@ -1,68 +1,44 @@
 #!/usr/bin/env bash
-# ScanWise auto-push daemon
-# Polls the working tree every 30s. If anything changed, commits with a
-# timestamped message and pushes to origin/main.
-#
-# Logs to /home/z/my-project/scripts/autopush.log
-#
-# Robustness:
-#   - `set +e` so a single git failure doesn't kill the daemon
-#   - Never commits .env / node_modules / .next / dev.log (gitignored)
-#   - Never commits download/, upload/, .zscripts/, db/, examples/,
-#     mini-services/, Caddyfile (all gitignored)
-#   - Single-instance: uses a flock on this very script
-#   - On push failure: logs and retries next cycle
-#   - Pulls --rebase first so manual edits on GitHub don't conflict
+# ScanWise auto-push daemon (minimal, robust).
+# Polls every 30s. Commits + pushes any pending changes.
+# Logs to scripts/autopush.log.
 
-set +e
-set -u
-
+POLL=30
 REPO="/home/z/my-project"
-LOG="/home/z/my-project/scripts/autopush.log"
-POLL_INTERVAL=30
-BRANCH="main"
+LOGF="$REPO/scripts/autopush.log"
+LOCK="/tmp/scanwise-autopush-daemon.lock"
 
-cd "$REPO" || { echo "cannot cd to $REPO" >> "$LOG"; exit 1; }
+cd "$REPO" || exit 1
 
-# Single-instance guard — flock on this script file itself
-exec 9<"$0"
-if ! flock -n 9; then
-  echo "$(date -Iseconds) another autopush is already running; exiting" >> "$LOG"
-  exit 0
+# ---- single instance via simple lockfile (no flock) ----
+if [ -e "$LOCK" ]; then
+  OLD=$(cat "$LOCK" 2>/dev/null)
+  if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then
+    echo "$(date -Iseconds) another daemon ($OLD) is alive; exiting" >> "$LOGF"
+    exit 0
+  fi
 fi
+echo $$ > "$LOCK"
+trap 'rm -f "$LOCK"' EXIT INT TERM
 
-log() {
-  echo "$(date -Iseconds) $*" >> "$LOG"
-}
-
-log "=== ScanWise autopush daemon started (PID $$) ==="
-log "poll interval: ${POLL_INTERVAL}s | branch: $BRANCH"
+echo "$(date -Iseconds) === daemon started (PID $$) ===" >> "$LOGF"
 
 while true; do
-  # Refresh remote refs (best-effort, ignore failures)
-  git fetch origin "$BRANCH" >>"$LOG" 2>&1
+  git fetch origin main >>"$LOGF" 2>&1
+  git pull --rebase --autostash origin main >>"$LOGF" 2>&1
 
-  # Rebase any remote changes onto local (with autostash)
-  git pull --rebase --autostash origin "$BRANCH" >>"$LOG" 2>&1
-
-  # Capture pending changes
-  pending=$(git status --porcelain 2>/dev/null)
-
-  if [ -n "$pending" ]; then
-    # Stage everything not gitignored
-    git add -A >>"$LOG" 2>&1
-
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    git add -A >>"$LOGF" 2>&1
     summary=$(git diff --cached --stat 2>/dev/null | tail -1)
-    timestamp=$(date -Iseconds)
-
-    git commit -m "auto: ${timestamp} — ${summary}" --quiet >>"$LOG" 2>&1
-
-    if git push origin "$BRANCH" >>"$LOG" 2>&1; then
-      log "pushed: ${summary}"
+    ts=$(date -Iseconds)
+    git commit -m "auto: ${ts} — ${summary}" --quiet >>"$LOGF" 2>&1
+    if git push origin main >>"$LOGF" 2>&1; then
+      sha=$(git rev-parse --short HEAD 2>/dev/null)
+      echo "$(date -Iseconds) pushed @ ${sha}: ${summary}" >>"$LOGF"
     else
-      log "ERROR: push failed; will retry next cycle"
+      echo "$(date -Iseconds) ERROR: push failed" >>"$LOGF"
     fi
   fi
 
-  sleep "$POLL_INTERVAL"
+  sleep "$POLL"
 done
