@@ -4,6 +4,9 @@ import withPWAInit from "@ducanh2912/next-pwa";
 const withPWA = withPWAInit({
   dest: "public",
   register: true,
+  // Disable in dev — PWA service worker only matters in production,
+  // and @ducanh2912/next-pwa injects a webpack config that conflicts
+  // with Next.js 16's default Turbopack bundler.
   disable: process.env.NODE_ENV === "development",
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: false,
@@ -77,6 +80,10 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
+  // Silence the Turbopack+webpack conflict warning from next-pwa in dev.
+  // The PWA wrapper is disabled in dev anyway (see `disable` above), so
+  // this empty object just tells Next.js we know what we're doing.
+  turbopack: {},
 };
 
 export default withPWA(nextConfig);
