@@ -30,8 +30,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files — NEVER commit real keys
+.env
+.env.local
+.env.*.local
+# (but DO commit .env.example — template only)
+!.env.example
 
 # vercel
 .vercel
@@ -50,7 +54,23 @@ test
 prompt
 
 server.log
-# Skills directory
+
+# Auto-push daemon (deleted in Phase 2.5 cleanup)
+scripts/autopush.log
+scripts/autopush.stdout.log
+
+# PWA generated service worker (auto-built by @ducanh2912/next-pwa)
+public/sw.js
+public/sw.js.map
+public/workbox-*.js
+public/workbox-*.js.map
+public/fallback-*.js
+
+# Prisma (deleted in Phase 2.5, but keep ignore for safety)
+/prisma/*.db
+/prisma/*.db-journal
+
+# Skills directory (sandbox-only)
 /skills/
 
 # Sandbox-only artifacts (not part of ScanWise source)
