@@ -52,3 +52,13 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Sandbox-only artifacts (not part of ScanWise source)
+/.zscripts/
+/download/
+/upload/
+/db/
+/mini-services/
+/examples/
+/Caddyfile
+/worklog.md
