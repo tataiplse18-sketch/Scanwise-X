@@ -5,6 +5,9 @@
 
 ![ScanWise](public/icon.svg)
 
+> 📸 **Screenshots** — see [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for a full gallery
+> of Phase 1 (4 views) and Phase 2 (scanner states) captures at 430×932 mobile viewport.
+
 ## Status
 
 | Phase | Status | What |
