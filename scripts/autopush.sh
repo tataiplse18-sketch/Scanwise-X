@@ -1,30 +1,31 @@
 #!/usr/bin/env bash
 # ScanWise auto-push daemon
-# Polls the working tree every 30s. If anything changed (and the change is
-# NOT inside sandbox-only paths), it commits with a timestamped message and
-# pushes to origin/main.
+# Polls the working tree every 30s. If anything changed, commits with a
+# timestamped message and pushes to origin/main.
 #
 # Logs to /home/z/my-project/scripts/autopush.log
 #
-# Safety:
-#   - Never commits .env, node_modules/, .next/, dev.log
-#   - Never commits anything inside download/, upload/, .zscripts/, db/,
-#     examples/, mini-services/, Caddyfile (all gitignored)
-#   - On push failure (network / auth), logs and retries next cycle
-#   - Single-instance: exits if another autopush is already running
+# Robustness:
+#   - `set +e` so a single git failure doesn't kill the daemon
+#   - Never commits .env / node_modules / .next / dev.log (gitignored)
+#   - Never commits download/, upload/, .zscripts/, db/, examples/,
+#     mini-services/, Caddyfile (all gitignored)
+#   - Single-instance: uses a flock on this very script
+#   - On push failure: logs and retries next cycle
+#   - Pulls --rebase first so manual edits on GitHub don't conflict
 
+set +e
 set -u
 
 REPO="/home/z/my-project"
 LOG="/home/z/my-project/scripts/autopush.log"
-POLL_INTERVAL=30  # seconds
+POLL_INTERVAL=30
 BRANCH="main"
 
-cd "$REPO" || exit 1
+cd "$REPO" || { echo "cannot cd to $REPO" >> "$LOG"; exit 1; }
 
-# ---- Single-instance guard ----------------------------------------------
-LOCKFILE="/tmp/scanwise-autopush.lock"
-exec 9>"$LOCKFILE"
+# Single-instance guard — flock on this script file itself
+exec 9<"$0"
 if ! flock -n 9; then
   echo "$(date -Iseconds) another autopush is already running; exiting" >> "$LOG"
   exit 0
@@ -38,35 +39,26 @@ log "=== ScanWise autopush daemon started (PID $$) ==="
 log "poll interval: ${POLL_INTERVAL}s | branch: $BRANCH"
 
 while true; do
-  # Refresh remote-tracking refs (cheap, ignores failures silently)
-  git fetch origin "$BRANCH" >/dev/null 2>&1
+  # Refresh remote refs (best-effort, ignore failures)
+  git fetch origin "$BRANCH" >>"$LOG" 2>&1
 
-  # 1. Pull any remote changes first (rebase keeps history linear)
-  if ! git pull --rebase --autostash origin "$BRANCH" >/dev/null 2>&1; then
-    log "WARN: pull --rebase failed; will retry next cycle"
-    sleep "$POLL_INTERVAL"
-    continue
-  fi
+  # Rebase any remote changes onto local (with autostash)
+  git pull --rebase --autostash origin "$BRANCH" >>"$LOG" 2>&1
 
-  # 2. Check for any staged/unstaged changes (excluding ignored files)
-  if [ -n "$(git status --porcelain)" ]; then
-    # Stage everything that isn't gitignored
-    git add -A
+  # Capture pending changes
+  pending=$(git status --porcelain 2>/dev/null)
 
-    # Build a short summary of what changed
-    summary=$(git diff --cached --stat | tail -1)
+  if [ -n "$pending" ]; then
+    # Stage everything not gitignored
+    git add -A >>"$LOG" 2>&1
+
+    summary=$(git diff --cached --stat 2>/dev/null | tail -1)
     timestamp=$(date -Iseconds)
 
-    # Commit
-    if git commit -m "auto: ${timestamp} — ${summary}" --quiet; then
-      log "committed: ${summary}"
-    else
-      log "INFO: nothing to commit (likely already clean)"
-    fi
+    git commit -m "auto: ${timestamp} — ${summary}" --quiet >>"$LOG" 2>&1
 
-    # Push
-    if git push origin "$BRANCH" >/dev/null 2>&1; then
-      log "pushed to origin/$BRANCH @ $(git rev-parse --short HEAD)"
+    if git push origin "$BRANCH" >>"$LOG" 2>&1; then
+      log "pushed: ${summary}"
     else
       log "ERROR: push failed; will retry next cycle"
     fi
